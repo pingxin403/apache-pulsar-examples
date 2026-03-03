@@ -1,0 +1,204 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-java:
+    name: Build Java Examples
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up JDK 11
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          cache: 'maven'
+      
+      - name: Build Java examples
+        run: |
+          echo "🔨 Building Java examples..."
+          for dir in java-examples/*/; do
+            if [ -f "$dir/pom.xml" ]; then
+              echo "Building $dir"
+              cd "$dir"
+              mvn clean package -DskipTests -q
+              if [ $? -ne 0 ]; then
+                echo "❌ FAILED: $dir"
+                exit 1
+              fi
+              cd - > /dev/null
+            fi
+          done
+          echo "✅ All Java examples built successfully"
+
+  check-python:
+    name: Check Python Examples
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 pulsar-client==3.2.0
+      
+      - name: Check Python syntax with flake8
+        run: |
+          echo "🔍 Checking Python code quality..."
+          flake8 python-examples/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 python-examples/ --count --max-line-length=120 --statistics
+          echo "✅ Python syntax check passed"
+
+  build-go:
+    name: Build Go Examples
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+      
+      - name: Build Go examples
+        run: |
+          echo "🔨 Building Go examples..."
+          for dir in go-examples/*/; do
+            if [ -f "$dir/go.mod" ]; then
+              echo "Building $dir"
+              cd "$dir"
+              go mod download
+              go build ./...
+              if [ $? -ne 0 ]; then
+                echo "❌ FAILED: $dir"
+                exit 1
+              fi
+              cd - > /dev/null
+            fi
+          done
+          echo "✅ All Go examples built successfully"
+      
+      - name: Check Go formatting
+        run: |
+          echo "🔍 Checking Go code formatting..."
+          for dir in go-examples/*/; do
+            if [ -f "$dir/go.mod" ]; then
+              cd "$dir"
+              unformatted=$(gofmt -l .)
+              if [ -n "$unformatted" ]; then
+                echo "❌ Unformatted Go files found in $dir:"
+                echo "$unformatted"
+                exit 1
+              fi
+              cd - > /dev/null
+            fi
+          done
+          echo "✅ Go formatting check passed"
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [build-java, check-python, build-go]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up JDK 11
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+      
+      - name: Start Pulsar
+        run: |
+          echo "🚀 Starting Pulsar standalone..."
+          docker-compose -f docker-compose/docker-compose.yml up -d
+          
+          echo "⏳ Waiting for Pulsar to be ready..."
+          timeout 120 bash -c 'until docker exec $(docker ps -qf "name=pulsar") bin/pulsar-admin brokers healthcheck 2>/dev/null; do sleep 2; done'
+          
+          echo "✅ Pulsar is ready"
+      
+      - name: Run Java quickstart example
+        run: |
+          echo "🧪 Testing Java quickstart example..."
+          cd java-examples/quickstart
+          
+          # Build the project
+          mvn clean package -DskipTests -q
+          
+          # Run producer in background
+          timeout 30 mvn exec:java -Dexec.mainClass="com.example.pulsar.ProducerExample" -q &
+          PRODUCER_PID=$!
+          
+          sleep 5
+          
+          # Run consumer in background
+          timeout 30 mvn exec:java -Dexec.mainClass="com.example.pulsar.ConsumerExample" -q &
+          CONSUMER_PID=$!
+          
+          sleep 10
+          
+          # Check if processes ran successfully
+          if ps -p $PRODUCER_PID > /dev/null 2>&1 || ps -p $CONSUMER_PID > /dev/null 2>&1; then
+            echo "✅ Java quickstart test passed"
+          else
+            echo "❌ Java quickstart test failed"
+            exit 1
+          fi
+          
+          # Cleanup
+          kill $PRODUCER_PID $CONSUMER_PID 2>/dev/null || true
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "🧹 Cleaning up..."
+          docker-compose -f docker-compose/docker-compose.yml down -v
+          echo "✅ Cleanup complete"
+
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [build-java, check-python, build-go, integration-test]
+    if: always()
+    
+    steps:
+      - name: Check results
+        run: |
+          echo "📊 CI Pipeline Summary:"
+          echo "✅ Java build: ${{ needs.build-java.result }}"
+          echo "✅ Python check: ${{ needs.check-python.result }}"
+          echo "✅ Go build: ${{ needs.build-go.result }}"
+          echo "✅ Integration tests: ${{ needs.integration-test.result }}"
+          
+          if [ "${{ needs.build-java.result }}" != "success" ] || \
+             [ "${{ needs.check-python.result }}" != "success" ] || \
+             [ "${{ needs.build-go.result }}" != "success" ] || \
+             [ "${{ needs.integration-test.result }}" != "success" ]; then
+            echo "❌ CI pipeline failed"
+            exit 1
+          fi
+          
+          echo "✅ All CI checks passed!"

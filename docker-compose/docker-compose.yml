@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  pulsar:
+    image: apachepulsar/pulsar:3.2.0
+    container_name: pulsar-standalone
+    hostname: pulsar
+    ports:
+      - "6650:6650"   # Pulsar binary protocol
+      - "8080:8080"   # Pulsar HTTP service
+    command: bin/pulsar standalone
+    environment:
+      - PULSAR_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m
+    healthcheck:
+      test: ["CMD", "bin/pulsar-admin", "brokers", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - pulsar-data:/pulsar/data
+
+volumes:
+  pulsar-data:
+    driver: local
