@@ -1,0 +1,29 @@
+# File Source Connector 配置
+# 从文件系统读取数据并发送到 Pulsar Topic
+
+tenant: public
+namespace: default
+name: file-source
+archive: builtin://file
+
+# Source 配置
+configs:
+  # 监控的文件目录
+  inputDirectory: /tmp/pulsar-file-source/input
+  # 处理完成后移动到的目录
+  processedDirectory: /tmp/pulsar-file-source/processed
+  # 文件过滤模式
+  fileFilter: ".*\\.txt$"
+  # 轮询间隔（毫秒）
+  pollingInterval: 5000
+  # 每次读取的最大文件数
+  numWorkers: 1
+
+# 输出 Topic
+topicName: persistent://public/default/file-source-output
+
+# 资源配置
+resources:
+  cpu: 0.5
+  ram: 536870912
+  disk: 1073741824

@@ -1,0 +1,15 @@
+# Sentiment Analysis Function 部署配置
+tenant: public
+namespace: default
+name: sentiment-analysis
+py: sentiment_function.py
+className: sentiment_function.SentimentFunction
+inputs:
+  - persistent://public/default/reviews
+output: persistent://public/default/sentiment-results
+autoAck: true
+parallelism: 1
+resources:
+  cpu: 0.5
+  ram: 536870912  # 512MB
+  disk: 1073741824  # 1GB

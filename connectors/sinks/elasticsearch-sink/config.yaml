@@ -1,0 +1,32 @@
+# Elasticsearch Sink Connector 配置
+# 从 Pulsar Topic 读取消息并写入 Elasticsearch
+
+tenant: public
+namespace: default
+name: elasticsearch-sink
+archive: builtin://elastic_search
+
+# Sink 配置
+configs:
+  # Elasticsearch 连接配置
+  elasticSearchUrl: "http://elasticsearch:9200"
+  indexName: "pulsar-messages"
+  typeName: "_doc"
+  # 批量写入配置
+  bulkEnabled: true
+  bulkActions: 100
+  bulkSizeInMb: 5
+  bulkConcurrentRequests: 1
+  # 重试配置
+  maxRetries: 3
+  retryBackoffInMs: 1000
+
+# 输入 Topic
+inputs:
+  - persistent://public/default/es-sink-input
+
+# 资源配置
+resources:
+  cpu: 0.5
+  ram: 536870912
+  disk: 1073741824
